@@ -36,6 +36,8 @@ class Server(object):
         self.poll_thread = threading.Thread(target=self._poll)
         self.poll_thread.start()
 
+        print 'Listening for messages now'
+
     def stop(self):
         self.stop_running.set()
         self.keepalive_thread.join()
@@ -131,14 +133,16 @@ class Server(object):
     def unpack_body(self, message):
         for part in message.walk():
             if part.get_content_type()=='text/plain':
-                return part.get_payload()
-        return ''
+                message['Body'] = part.get_payload()
+                return
+        message['Body'] = ''
 
     def process_unread(self):
         id_succeed = []
         id_fail = []
         for msgid,msg in self.get_unread():
-            success = self.callback(self,msg,self.unpack_body(msg))
+            self.unpack_body(msg)
+            success = self.callback(self,msg)
             (id_succeed if success else id_fail).append(msgid)
         if id_succeed:
             self.imap_poll.set_gmail_labels(id_succeed,['handled-done'])
@@ -147,16 +151,17 @@ class Server(object):
             self.imap_poll.set_gmail_labels(id_fail,['handled-error'])
 
 
-from callbacks import allfuncs
-def callback(server,msg):
-    for part in msg.walk():
-        if part.get_content_type()=='text/plain':
-            body = part.get_payload()
-
-    results = [func(server,msg,body) for func in allfuncs]
-    return any(results)
-
-if __name__=='__main__':
+def main():
     username,password = [line.strip() for line in open('config.txt')][:2]
+
+    import callbacks
+    def callback(server,msg):
+        results = [func(server,msg) for func in callbacks.callbacks]
+        return any(results)
+
     with Server(username, password, callback) as s:
         s.wait()
+
+
+if __name__=='__main__':
+    main()
